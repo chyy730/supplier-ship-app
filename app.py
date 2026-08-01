@@ -1,19 +1,23 @@
 import os
 import csv
+import sqlite3
 from io import StringIO, BytesIO
 from functools import wraps
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, make_response, flash)
-import psycopg2
-import psycopg2.extras
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'change-this-secret-key')
 
+# 数据库文件路径（PythonAnywhere 和本地通用）
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shipments.db')
+
 # ==================== 数据库 ====================
 
 def get_db():
-    return psycopg2.connect(os.environ.get('DATABASE_URL'))
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
     conn = get_db()
@@ -21,7 +25,7 @@ def init_db():
     # 供应商账号表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS suppliers (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             username VARCHAR(50) UNIQUE NOT NULL,
             password VARCHAR(100) NOT NULL,
             company_name VARCHAR(100) NOT NULL,
@@ -31,7 +35,7 @@ def init_db():
     # 发货记录表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shipments (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
             project_name VARCHAR(200) NOT NULL,
             project_code VARCHAR(100),
@@ -47,7 +51,7 @@ def init_db():
     # 管理员表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admins (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             username VARCHAR(50) UNIQUE NOT NULL,
             password VARCHAR(100) NOT NULL
         )
@@ -86,8 +90,8 @@ def supplier_login():
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         conn = get_db()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cursor.execute('SELECT * FROM suppliers WHERE username = %s AND password = %s', (username, password))
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM suppliers WHERE username = ? AND password = ?', (username, password))
         supplier = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -110,9 +114,9 @@ def supplier_logout():
 @supplier_login_required
 def supplier_dashboard():
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
     cursor.execute(
-        'SELECT * FROM shipments WHERE supplier_id = %s ORDER BY created_at DESC',
+        'SELECT * FROM shipments WHERE supplier_id = ? ORDER BY created_at DESC',
         (session['supplier_id'],)
     )
     shipments = cursor.fetchall()
@@ -142,7 +146,7 @@ def supplier_submit():
             INSERT INTO shipments
             (supplier_id, project_name, project_code, purchase_order,
              customer_order, logistics_no, logistics_receipt, ship_date, remark)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (session['supplier_id'], project_name, project_code,
               purchase_order, customer_order, logistics_no,
               logistics_receipt, ship_date, remark))
@@ -156,7 +160,7 @@ def supplier_submit():
 @supplier_login_required
 def supplier_edit(item_id):
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
     if request.method == 'POST':
         project_name = request.form.get('project_name', '').strip()
         project_code = request.form.get('project_code', '').strip()
@@ -169,10 +173,10 @@ def supplier_edit(item_id):
 
         cursor.execute('''
             UPDATE shipments SET
-                project_name=%s, project_code=%s, purchase_order=%s,
-                customer_order=%s, logistics_no=%s, logistics_receipt=%s,
-                ship_date=%s, remark=%s
-            WHERE id=%s AND supplier_id=%s
+                project_name=?, project_code=?, purchase_order=?,
+                customer_order=?, logistics_no=?, logistics_receipt=?,
+                ship_date=?, remark=?
+            WHERE id=? AND supplier_id=?
         ''', (project_name, project_code, purchase_order,
               customer_order, logistics_no, logistics_receipt,
               ship_date, remark, item_id, session['supplier_id']))
@@ -181,7 +185,7 @@ def supplier_edit(item_id):
         conn.close()
         return redirect(url_for('supplier_dashboard'))
 
-    cursor.execute('SELECT * FROM shipments WHERE id=%s AND supplier_id=%s',
+    cursor.execute('SELECT * FROM shipments WHERE id=? AND supplier_id=?',
                    (item_id, session['supplier_id']))
     item = cursor.fetchone()
     cursor.close()
@@ -195,7 +199,7 @@ def supplier_edit(item_id):
 def supplier_delete(item_id):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM shipments WHERE id=%s AND supplier_id=%s',
+    cursor.execute('DELETE FROM shipments WHERE id=? AND supplier_id=?',
                    (item_id, session['supplier_id']))
     conn.commit()
     cursor.close()
@@ -209,13 +213,12 @@ def supplier_export_excel():
         import openpyxl
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     except ImportError:
-        # fallback CSV
         return supplier_export_csv()
 
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
     cursor.execute(
-        'SELECT * FROM shipments WHERE supplier_id = %s ORDER BY created_at DESC',
+        'SELECT * FROM shipments WHERE supplier_id = ? ORDER BY created_at DESC',
         (session['supplier_id'],)
     )
     rows = cursor.fetchall()
@@ -253,7 +256,6 @@ def supplier_export_excel():
             cell.border = thin_border
             cell.alignment = Alignment(vertical='center')
 
-    # Auto width
     for col in range(1, len(headers) + 1):
         max_len = max(len(str(ws.cell(row=r, column=col).value or ''))
                       for r in range(1, len(rows) + 2))
@@ -276,8 +278,8 @@ def admin_login():
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         conn = get_db()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cursor.execute('SELECT * FROM admins WHERE username = %s AND password = %s',
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM admins WHERE username = ? AND password = ?',
                        (username, password))
         admin = cursor.fetchone()
         cursor.close()
@@ -298,18 +300,15 @@ def admin_logout():
 @app.route('/admin')
 @admin_login_required
 def admin_dashboard():
-    # 供应商筛选
     filter_supplier = request.args.get('supplier_id', '')
     keyword = request.args.get('keyword', '').strip()
 
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
 
-    # 获取所有供应商（用于下拉）
     cursor.execute('SELECT id, company_name FROM suppliers ORDER BY company_name')
     suppliers = cursor.fetchall()
 
-    # 构建查询
     query = '''
         SELECT s.*, sp.company_name
         FROM shipments s
@@ -318,14 +317,14 @@ def admin_dashboard():
     '''
     params = []
     if filter_supplier:
-        query += ' AND s.supplier_id = %s'
+        query += ' AND s.supplier_id = ?'
         params.append(int(filter_supplier))
     if keyword:
-        query += ''' AND (s.project_name ILIKE %s
-                      OR s.project_code ILIKE %s
-                      OR s.purchase_order ILIKE %s
-                      OR s.customer_order ILIKE %s
-                      OR s.logistics_no ILIKE %s)'''
+        query += ''' AND (s.project_name LIKE ?
+                      OR s.project_code LIKE ?
+                      OR s.purchase_order LIKE ?
+                      OR s.customer_order LIKE ?
+                      OR s.logistics_no LIKE ?)'''
         kw = f'%{keyword}%'
         params.extend([kw, kw, kw, kw, kw])
     query += ' ORDER BY s.created_at DESC'
@@ -333,7 +332,6 @@ def admin_dashboard():
     cursor.execute(query, params)
     shipments = cursor.fetchall()
 
-    # 统计
     cursor.execute('SELECT COUNT(*) FROM shipments')
     total_count = cursor.fetchone()[0]
     cursor.execute('SELECT COUNT(DISTINCT supplier_id) FROM shipments')
@@ -350,7 +348,7 @@ def admin_dashboard():
 @admin_login_required
 def admin_supplier_manage():
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
     cursor.execute('''
         SELECT sp.*, COUNT(s.id) as shipment_count
         FROM suppliers sp
@@ -375,11 +373,11 @@ def admin_supplier_add():
     cursor = conn.cursor()
     try:
         cursor.execute(
-            'INSERT INTO suppliers (username, password, company_name) VALUES (%s, %s, %s)',
+            'INSERT INTO suppliers (username, password, company_name) VALUES (?, ?, ?)',
             (username, password, company_name)
         )
         conn.commit()
-    except psycopg2.IntegrityError:
+    except sqlite3.IntegrityError:
         conn.rollback()
     cursor.close()
     conn.close()
@@ -390,8 +388,8 @@ def admin_supplier_add():
 def admin_supplier_delete(supplier_id):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM shipments WHERE supplier_id = %s', (supplier_id,))
-    cursor.execute('DELETE FROM suppliers WHERE id = %s', (supplier_id,))
+    cursor.execute('DELETE FROM shipments WHERE supplier_id = ?', (supplier_id,))
+    cursor.execute('DELETE FROM suppliers WHERE id = ?', (supplier_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -402,7 +400,7 @@ def admin_supplier_delete(supplier_id):
 def admin_delete(item_id):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM shipments WHERE id = %s', (item_id,))
+    cursor.execute('DELETE FROM shipments WHERE id = ?', (item_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -418,7 +416,7 @@ def admin_export_excel():
         return admin_export_csv()
 
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
     cursor.execute('''
         SELECT s.*, sp.company_name
         FROM shipments s
@@ -471,7 +469,7 @@ def admin_export_excel():
     output.seek(0)
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    response.headers['Content-Disposition'] = 'attachment; filename=全部发货记录.xlsx'
+    response.headers['Content-Disposition'] = 'attachment; filename=全批发货记录.xlsx'
     return response
 
 # ==================== 初始化 ====================
@@ -479,7 +477,6 @@ def admin_export_excel():
 @app.route('/init')
 def init_route():
     init_db()
-    # 创建默认管理员（如果不存在）
     admin_user = os.environ.get('ADMIN_USERNAME', 'admin')
     admin_pass = os.environ.get('ADMIN_PASSWORD', 'admin123')
     conn = get_db()
@@ -487,13 +484,16 @@ def init_route():
     cursor.execute('SELECT COUNT(*) FROM admins')
     if cursor.fetchone()[0] == 0:
         cursor.execute(
-            'INSERT INTO admins (username, password) VALUES (%s, %s)',
+            'INSERT INTO admins (username, password) VALUES (?, ?)',
             (admin_user, admin_pass)
         )
         conn.commit()
     cursor.close()
     conn.close()
     return '数据库初始化完成！<a href="/">返回首页</a>'
+
+# PythonAnywhere WSGI 入口
+application = app
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}我的发货记录{% endblock %}
+{% block navbar %}
+    <span style="color:var(--text-light);font-size:14px;">当前供应商：{{ session.supplier_name }}</span>
+    <a href="/supplier/submit" class="btn btn-sm btn-primary">新增发货</a>
+    <a href="/supplier/export/excel" class="btn btn-sm btn-outline">导出Excel</a>
+    <a href="/supplier/logout" class="btn btn-sm btn-outline" style="color:#dc3545;border-color:#dc3545;">退出</a>
+{% endblock %}
+{% block content %}
+<h1>我的发货记录</h1>
+{% if shipments %}
+<div style="overflow-x:auto;">
+<table>
+    <thead>
+        <tr>
+            <th>项目名称</th>
+            <th>项目编号</th>
+            <th>采购订单号</th>
+            <th>客户订单号</th>
+            <th>物流单号</th>
+            <th>物流回单</th>
+            <th>发货日期</th>
+            <th>备注</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in shipments %}
+        <tr>
+            <td>{{ s.project_name }}</td>
+            <td>{{ s.project_code or '' }}</td>
+            <td>{{ s.purchase_order or '' }}</td>
+            <td>{{ s.customer_order or '' }}</td>
+            <td>{{ s.logistics_no or '' }}</td>
+            <td>{{ s.logistics_receipt or '' }}</td>
+            <td>{{ s.ship_date or '' }}</td>
+            <td>{{ s.remark or '' }}</td>
+            <td class="actions-cell">
+                <a href="/supplier/edit/{{ s.id }}" class="btn btn-sm btn-outline">编辑</a>
+                <form method="POST" action="/supplier/delete/{{ s.id }}" style="display:inline;"
+                      onsubmit="return confirm('确认删除此条记录？')">
+                    <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>暂无发货记录，点击"新增发货"开始填写</p>
+</div>
+{% endif %}
+{% endblock %}

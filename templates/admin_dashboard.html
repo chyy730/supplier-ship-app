@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}管理员 - 全部发货记录{% endblock %}
+{% block navbar %}
+    <a href="/admin" class="btn btn-sm btn-primary">发货记录</a>
+    <a href="/admin/supplier/manage" class="btn btn-sm btn-outline">供应商管理</a>
+    <a href="/admin/export/excel" class="btn btn-sm btn-outline">导出全部Excel</a>
+    <a href="/admin/logout" class="btn btn-sm btn-outline" style="color:#dc3545;border-color:#dc3545;">退出</a>
+{% endblock %}
+{% block content %}
+<h1>全部发货记录</h1>
+
+<div class="stats-bar">
+    <div class="stat-item">
+        <div class="stat-number">{{ total_count }}</div>
+        <div class="stat-label">发货记录总数</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-number">{{ supplier_count }}</div>
+        <div class="stat-label">已提交供应商数</div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="GET" class="filter-bar">
+        <div class="form-group" style="min-width:160px;">
+            <label>按供应商筛选</label>
+            <select name="supplier_id" class="form-control">
+                <option value="">全部供应商</option>
+                {% for sp in suppliers %}
+                <option value="{{ sp.id }}" {% if filter_supplier == sp.id|string %}selected{% endif %}>
+                    {{ sp.company_name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="min-width:200px;">
+            <label>关键词搜索</label>
+            <input type="text" name="keyword" class="form-control" placeholder="项目名称/编号/订单号" value="{{ keyword }}">
+        </div>
+        <div class="form-group" style="padding-top:24px;">
+            <button type="submit" class="btn btn-primary btn-sm">筛选</button>
+            <a href="/admin" class="btn btn-outline btn-sm" style="margin-left:4px;">重置</a>
+        </div>
+    </form>
+</div>
+
+<div class="card" style="padding:0;overflow-x:auto;">
+{% if shipments %}
+<table>
+    <thead>
+        <tr>
+            <th>供应商</th>
+            <th>项目名称</th>
+            <th>项目编号</th>
+            <th>采购订单号</th>
+            <th>客户订单号</th>
+            <th>物流单号</th>
+            <th>物流回单</th>
+            <th>发货日期</th>
+            <th>备注</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in shipments %}
+        <tr>
+            <td>{{ s.company_name }}</td>
+            <td>{{ s.project_name }}</td>
+            <td>{{ s.project_code or '' }}</td>
+            <td>{{ s.purchase_order or '' }}</td>
+            <td>{{ s.customer_order or '' }}</td>
+            <td>{{ s.logistics_no or '' }}</td>
+            <td>{{ s.logistics_receipt or '' }}</td>
+            <td>{{ s.ship_date or '' }}</td>
+            <td>{{ s.remark or '' }}</td>
+            <td class="actions-cell">
+                <form method="POST" action="/admin/delete/{{ s.id }}" style="display:inline;"
+                      onsubmit="return confirm('确认删除此条记录？')">
+                    <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">暂无发货记录</div>
+{% endif %}
+</div>
+{% endblock %}

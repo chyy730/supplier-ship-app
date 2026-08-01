@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}编辑发货记录{% endblock %}
+{% block navbar %}
+    <a href="/supplier/dashboard" class="btn btn-sm btn-outline">返回列表</a>
+{% endblock %}
+{% block content %}
+<div class="card" style="max-width:700px;">
+    <h2>编辑发货记录</h2>
+    <form method="POST">
+        <div class="form-row">
+            <div class="form-group">
+                <label>项目名称 *</label>
+                <input type="text" name="project_name" class="form-control" required value="{{ item.project_name }}">
+            </div>
+            <div class="form-group">
+                <label>项目编号</label>
+                <input type="text" name="project_code" class="form-control" value="{{ item.project_code or '' }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>采购订单号</label>
+                <input type="text" name="purchase_order" class="form-control" value="{{ item.purchase_order or '' }}">
+            </div>
+            <div class="form-group">
+                <label>客户订单号</label>
+                <input type="text" name="customer_order" class="form-control" value="{{ item.customer_order or '' }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>物流单号</label>
+                <input type="text" name="logistics_no" class="form-control" value="{{ item.logistics_no or '' }}">
+            </div>
+            <div class="form-group">
+                <label>物流回单</label>
+                <input type="text" name="logistics_receipt" class="form-control" value="{{ item.logistics_receipt or '' }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>发货日期</label>
+                <input type="date" name="ship_date" class="form-control" value="{{ item.ship_date or '' }}">
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <input type="text" name="remark" class="form-control" value="{{ item.remark or '' }}">
+            </div>
+        </div>
+        <div style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">保存修改</button>
+            <a href="/supplier/dashboard" class="btn btn-outline" style="margin-left:12px;">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

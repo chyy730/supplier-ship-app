@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}管理员 - 供应商管理{% endblock %}
+{% block navbar %}
+    <a href="/admin" class="btn btn-sm btn-outline">发货记录</a>
+    <a href="/admin/supplier/manage" class="btn btn-sm btn-primary">供应商管理</a>
+    <a href="/admin/export/excel" class="btn btn-sm btn-outline">导出全部Excel</a>
+    <a href="/admin/logout" class="btn btn-sm btn-outline" style="color:#dc3545;border-color:#dc3545;">退出</a>
+{% endblock %}
+{% block content %}
+<h1>供应商管理</h1>
+
+<div class="card">
+    <h2>添加供应商账号</h2>
+    <form method="POST" action="/admin/supplier/add" style="margin-top:12px;">
+        <div class="form-row" style="grid-template-columns:1fr 1fr 1fr auto;align-items:end;">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" name="username" class="form-control" required placeholder="登录用户名">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="text" name="password" class="form-control" required placeholder="登录密码">
+            </div>
+            <div class="form-group">
+                <label>供应商名称</label>
+                <input type="text" name="company_name" class="form-control" required placeholder="公司/供应商名称">
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary" style="margin-top:0;">添加</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>已注册供应商</h2>
+    {% if suppliers %}
+    <div style="overflow-x:auto;margin-top:12px;">
+    <table>
+        <thead>
+            <tr>
+                <th>用户名</th>
+                <th>供应商名称</th>
+                <th>发货记录数</th>
+                <th>注册时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sp in suppliers %}
+            <tr>
+                <td>{{ sp.username }}</td>
+                <td>{{ sp.company_name }}</td>
+                <td>{{ sp.shipment_count }}</td>
+                <td>{{ sp.created_at or '' }}</td>
+                <td class="actions-cell">
+                    <form method="POST" action="/admin/supplier/delete/{{ sp.id }}" style="display:inline;"
+                          onsubmit="return confirm('删除供应商将同时删除其所有发货记录，确认删除？')">
+                        <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state">暂无供应商，请添加</div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}供应商发货信息收集 - 首页{% endblock %}
+{% block navbar %}
+    <a href="/supplier/login" class="btn-primary btn">供应商登录</a>
+    <a href="/admin/login" class="btn-outline btn">管理员登录</a>
+{% endblock %}
+{% block content %}
+<div class="hero">
+    <h1>供应商发货信息收集系统</h1>
+    <p>各项目供应商在线填报发货情况，管理员统一查看与导出</p>
+    <a href="/supplier/login" class="btn btn-primary" style="margin-right:12px;">供应商入口</a>
+    <a href="/admin/login" class="btn btn-outline">管理员入口</a>
+</div>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}新增发货记录{% endblock %}
+{% block navbar %}
+    <a href="/supplier/dashboard" class="btn btn-sm btn-outline">返回列表</a>
+    <a href="/supplier/logout" class="btn btn-sm btn-outline" style="color:#dc3545;border-color:#dc3545;">退出</a>
+{% endblock %}
+{% block content %}
+<div class="card" style="max-width:700px;">
+    <h2>新增发货记录</h2>
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <form method="POST">
+        <div class="form-row">
+            <div class="form-group">
+                <label>项目名称 *</label>
+                <input type="text" name="project_name" class="form-control" required placeholder="请输入项目名称">
+            </div>
+            <div class="form-group">
+                <label>项目编号</label>
+                <input type="text" name="project_code" class="form-control" placeholder="请输入项目编号">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>采购订单号</label>
+                <input type="text" name="purchase_order" class="form-control" placeholder="请输入采购订单号">
+            </div>
+            <div class="form-group">
+                <label>客户订单号</label>
+                <input type="text" name="customer_order" class="form-control" placeholder="请输入客户订单号">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>物流单号</label>
+                <input type="text" name="logistics_no" class="form-control" placeholder="请输入物流单号">
+            </div>
+            <div class="form-group">
+                <label>物流回单</label>
+                <input type="text" name="logistics_receipt" class="form-control" placeholder="请输入物流回单号">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>发货日期</label>
+                <input type="date" name="ship_date" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <input type="text" name="remark" class="form-control" placeholder="备注信息（选填）">
+            </div>
+        </div>
+        <div style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">提交</button>
+            <a href="/supplier/dashboard" class="btn btn-outline" style="margin-left:12px;">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

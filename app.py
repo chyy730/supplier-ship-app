@@ -1,16 +1,22 @@
 import os
 import csv
 import sqlite3
+import uuid
 from io import StringIO, BytesIO
 from functools import wraps
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, make_response, flash)
+                   session, make_response, flash, send_from_directory)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'change-this-secret-key')
 
-# 数据库文件路径（PythonAnywhere 和本地通用）
+# 数据库文件路径
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shipments.db')
+# 上传文件存储目录
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB
 
 # ==================== 数据库 ====================
 
@@ -22,7 +28,6 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    # 供应商账号表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,23 +37,22 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # 发货记录表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
-            project_name VARCHAR(200) NOT NULL,
-            project_code VARCHAR(100),
+            project_id INTEGER REFERENCES projects(id),
             purchase_order VARCHAR(100),
             customer_order VARCHAR(100),
             logistics_no VARCHAR(200),
-            logistics_receipt VARCHAR(200),
+            logistics_receipt_file VARCHAR(500),
             ship_date DATE,
+            product_name VARCHAR(200),
+            product_model VARCHAR(200),
             remark TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # 管理员表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admins (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +60,31 @@ def init_db():
             password VARCHAR(100) NOT NULL
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code VARCHAR(100) NOT NULL,
+            name VARCHAR(200) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    # 迁移：为旧表添加新字段（如果不存在）
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN product_name VARCHAR(200)")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN product_model VARCHAR(200)")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN logistics_receipt_file VARCHAR(500)")
+    except Exception:
+        pass
     conn.commit()
     cursor.close()
     conn.close()
@@ -78,11 +107,13 @@ def admin_login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# ==================== 供应商路由 ====================
+# ==================== 首页 ====================
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+# ==================== 供应商路由 ====================
 
 @app.route('/supplier/login', methods=['GET', 'POST'])
 def supplier_login():
@@ -115,10 +146,13 @@ def supplier_logout():
 def supplier_dashboard():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        'SELECT * FROM shipments WHERE supplier_id = ? ORDER BY created_at DESC',
-        (session['supplier_id'],)
-    )
+    cursor.execute('''
+        SELECT s.*, p.name as project_name, p.code as project_code
+        FROM shipments s
+        LEFT JOIN projects p ON s.project_id = p.id
+        WHERE s.supplier_id = ?
+        ORDER BY s.created_at DESC
+    ''', (session['supplier_id'],))
     shipments = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -127,34 +161,50 @@ def supplier_dashboard():
 @app.route('/supplier/submit', methods=['GET', 'POST'])
 @supplier_login_required
 def supplier_submit():
+    conn = get_db()
+    cursor = conn.cursor()
     if request.method == 'POST':
-        project_name = request.form.get('project_name', '').strip()
-        project_code = request.form.get('project_code', '').strip()
+        project_id = request.form.get('project_id', '') or None
         purchase_order = request.form.get('purchase_order', '').strip()
         customer_order = request.form.get('customer_order', '').strip()
         logistics_no = request.form.get('logistics_no', '').strip()
-        logistics_receipt = request.form.get('logistics_receipt', '').strip()
         ship_date = request.form.get('ship_date', '') or None
+        product_name = request.form.get('product_name', '').strip()
+        product_model = request.form.get('product_model', '').strip()
         remark = request.form.get('remark', '').strip()
 
-        if not project_name:
-            return render_template('supplier_submit.html', error='项目名称不能为空')
+        if not project_id:
+            cursor.close()
+            conn.close()
+            projects = cursor2_projects()
+            return render_template('supplier_submit.html', error='请选择项目', projects=projects)
 
-        conn = get_db()
-        cursor = conn.cursor()
+        # 处理附件上传
+        receipt_file = request.files.get('logistics_receipt_file')
+        receipt_filename = None
+        if receipt_file and receipt_file.filename:
+            ext = os.path.splitext(receipt_file.filename)[1]
+            receipt_filename = f"{uuid.uuid4().hex}{ext}"
+            receipt_file.save(os.path.join(app.config['UPLOAD_FOLDER'], receipt_filename))
+
         cursor.execute('''
             INSERT INTO shipments
-            (supplier_id, project_name, project_code, purchase_order,
-             customer_order, logistics_no, logistics_receipt, ship_date, remark)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (session['supplier_id'], project_name, project_code,
-              purchase_order, customer_order, logistics_no,
-              logistics_receipt, ship_date, remark))
+            (supplier_id, project_id, purchase_order, customer_order,
+             logistics_no, logistics_receipt_file, ship_date,
+             product_name, product_model, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (session['supplier_id'], project_id, purchase_order,
+              customer_order, logistics_no, receipt_filename, ship_date,
+              product_name, product_model, remark))
         conn.commit()
         cursor.close()
         conn.close()
         return redirect(url_for('supplier_dashboard'))
-    return render_template('supplier_submit.html', error=None)
+
+    projects = get_projects_list()
+    cursor.close()
+    conn.close()
+    return render_template('supplier_submit.html', error=None, projects=projects)
 
 @app.route('/supplier/edit/<int:item_id>', methods=['GET', 'POST'])
 @supplier_login_required
@@ -162,24 +212,42 @@ def supplier_edit(item_id):
     conn = get_db()
     cursor = conn.cursor()
     if request.method == 'POST':
-        project_name = request.form.get('project_name', '').strip()
-        project_code = request.form.get('project_code', '').strip()
+        project_id = request.form.get('project_id', '') or None
         purchase_order = request.form.get('purchase_order', '').strip()
         customer_order = request.form.get('customer_order', '').strip()
         logistics_no = request.form.get('logistics_no', '').strip()
-        logistics_receipt = request.form.get('logistics_receipt', '').strip()
         ship_date = request.form.get('ship_date', '') or None
+        product_name = request.form.get('product_name', '').strip()
+        product_model = request.form.get('product_model', '').strip()
         remark = request.form.get('remark', '').strip()
+
+        # 保留原附件，除非上传了新附件
+        cursor.execute('SELECT logistics_receipt_file FROM shipments WHERE id=? AND supplier_id=?',
+                       (item_id, session['supplier_id']))
+        existing = cursor.fetchone()
+        receipt_filename = existing['logistics_receipt_file'] if existing else None
+
+        receipt_file = request.files.get('logistics_receipt_file')
+        if receipt_file and receipt_file.filename:
+            # 删除旧文件
+            if receipt_filename:
+                old_path = os.path.join(app.config['UPLOAD_FOLDER'], receipt_filename)
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            ext = os.path.splitext(receipt_file.filename)[1]
+            receipt_filename = f"{uuid.uuid4().hex}{ext}"
+            receipt_file.save(os.path.join(app.config['UPLOAD_FOLDER'], receipt_filename))
 
         cursor.execute('''
             UPDATE shipments SET
-                project_name=?, project_code=?, purchase_order=?,
-                customer_order=?, logistics_no=?, logistics_receipt=?,
-                ship_date=?, remark=?
+                project_id=?, purchase_order=?, customer_order=?,
+                logistics_no=?, logistics_receipt_file=?, ship_date=?,
+                product_name=?, product_model=?, remark=?
             WHERE id=? AND supplier_id=?
-        ''', (project_name, project_code, purchase_order,
-              customer_order, logistics_no, logistics_receipt,
-              ship_date, remark, item_id, session['supplier_id']))
+        ''', (project_id, purchase_order, customer_order,
+              logistics_no, receipt_filename, ship_date,
+              product_name, product_model, remark,
+              item_id, session['supplier_id']))
         conn.commit()
         cursor.close()
         conn.close()
@@ -188,23 +256,36 @@ def supplier_edit(item_id):
     cursor.execute('SELECT * FROM shipments WHERE id=? AND supplier_id=?',
                    (item_id, session['supplier_id']))
     item = cursor.fetchone()
+    projects = get_projects_list()
     cursor.close()
     conn.close()
     if not item:
         return redirect(url_for('supplier_dashboard'))
-    return render_template('supplier_edit.html', item=item)
+    return render_template('supplier_edit.html', item=item, projects=projects)
 
 @app.route('/supplier/delete/<int:item_id>', methods=['POST'])
 @supplier_login_required
 def supplier_delete(item_id):
     conn = get_db()
     cursor = conn.cursor()
+    # 删除附件文件
+    cursor.execute('SELECT logistics_receipt_file FROM shipments WHERE id=? AND supplier_id=?',
+                   (item_id, session['supplier_id']))
+    row = cursor.fetchone()
+    if row and row['logistics_receipt_file']:
+        fpath = os.path.join(app.config['UPLOAD_FOLDER'], row['logistics_receipt_file'])
+        if os.path.exists(fpath):
+            os.remove(fpath)
     cursor.execute('DELETE FROM shipments WHERE id=? AND supplier_id=?',
                    (item_id, session['supplier_id']))
     conn.commit()
     cursor.close()
     conn.close()
     return redirect(url_for('supplier_dashboard'))
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/supplier/export/excel')
 @supplier_login_required
@@ -217,10 +298,13 @@ def supplier_export_excel():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        'SELECT * FROM shipments WHERE supplier_id = ? ORDER BY created_at DESC',
-        (session['supplier_id'],)
-    )
+    cursor.execute('''
+        SELECT s.*, p.name as project_name, p.code as project_code
+        FROM shipments s
+        LEFT JOIN projects p ON s.project_id = p.id
+        WHERE s.supplier_id = ?
+        ORDER BY s.created_at DESC
+    ''', (session['supplier_id'],))
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -229,8 +313,8 @@ def supplier_export_excel():
     ws = wb.active
     ws.title = '发货记录'
 
-    headers = ['项目名称', '项目编号', '采购订单号', '客户订单号',
-                '物流单号', '物流回单', '发货日期', '备注', '提交时间']
+    headers = ['项目编号', '项目名称', '采购订单号', '客户订单号',
+                '物流单号', '发货商品名称', '型号', '发货日期', '备注', '提交时间']
     header_font = Font(bold=True, size=11, color='FFFFFF')
     header_fill = PatternFill(start_color='E60012', end_color='E60012', fill_type='solid')
     thin_border = Border(
@@ -246,8 +330,10 @@ def supplier_export_excel():
         cell.border = thin_border
 
     for row_idx, row in enumerate(rows, 2):
-        values = [row['project_name'], row['project_code'], row['purchase_order'],
-                  row['customer_order'], row['logistics_no'], row['logistics_receipt'],
+        values = [row['project_code'] or '', row['project_name'] or '',
+                  row['purchase_order'] or '', row['customer_order'] or '',
+                  row['logistics_no'] or '',
+                  row['product_name'] or '', row['product_model'] or '',
                   str(row['ship_date']) if row['ship_date'] else '',
                   row['remark'] or '',
                   str(row['created_at']) if row['created_at'] else '']
@@ -310,9 +396,10 @@ def admin_dashboard():
     suppliers = cursor.fetchall()
 
     query = '''
-        SELECT s.*, sp.company_name
+        SELECT s.*, sp.company_name, p.name as project_name, p.code as project_code
         FROM shipments s
         JOIN suppliers sp ON s.supplier_id = sp.id
+        LEFT JOIN projects p ON s.project_id = p.id
         WHERE 1=1
     '''
     params = []
@@ -320,13 +407,14 @@ def admin_dashboard():
         query += ' AND s.supplier_id = ?'
         params.append(int(filter_supplier))
     if keyword:
-        query += ''' AND (s.project_name LIKE ?
-                      OR s.project_code LIKE ?
+        query += ''' AND (p.name LIKE ?
+                      OR p.code LIKE ?
                       OR s.purchase_order LIKE ?
                       OR s.customer_order LIKE ?
-                      OR s.logistics_no LIKE ?)'''
+                      OR s.logistics_no LIKE ?
+                      OR s.product_name LIKE ?)'''
         kw = f'%{keyword}%'
-        params.extend([kw, kw, kw, kw, kw])
+        params.extend([kw, kw, kw, kw, kw, kw])
     query += ' ORDER BY s.created_at DESC'
 
     cursor.execute(query, params)
@@ -400,11 +488,64 @@ def admin_supplier_delete(supplier_id):
 def admin_delete(item_id):
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute('SELECT logistics_receipt_file FROM shipments WHERE id=?', (item_id,))
+    row = cursor.fetchone()
+    if row and row['logistics_receipt_file']:
+        fpath = os.path.join(app.config['UPLOAD_FOLDER'], row['logistics_receipt_file'])
+        if os.path.exists(fpath):
+            os.remove(fpath)
     cursor.execute('DELETE FROM shipments WHERE id = ?', (item_id,))
     conn.commit()
     cursor.close()
     conn.close()
     return redirect(url_for('admin_dashboard'))
+
+# ==================== 项目管理（管理员） ====================
+
+@app.route('/admin/project/manage')
+@admin_login_required
+def admin_project_manage():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT p.*, COUNT(s.id) as shipment_count
+        FROM projects p
+        LEFT JOIN shipments s ON p.id = s.project_id
+        GROUP BY p.id
+        ORDER BY p.code
+    ''')
+    projects = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return render_template('admin_project_manage.html', projects=projects)
+
+@app.route('/admin/project/add', methods=['POST'])
+@admin_login_required
+def admin_project_add():
+    code = request.form.get('code', '').strip()
+    name = request.form.get('name', '').strip()
+    if not code or not name:
+        return redirect(url_for('admin_project_manage'))
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO projects (code, name) VALUES (?, ?)', (code, name))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return redirect(url_for('admin_project_manage'))
+
+@app.route('/admin/project/delete/<int:project_id>', methods=['POST'])
+@admin_login_required
+def admin_project_delete(project_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM projects WHERE id = ?', (project_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return redirect(url_for('admin_project_manage'))
+
+# ==================== Excel导出（管理员） ====================
 
 @app.route('/admin/export/excel')
 @admin_login_required
@@ -418,9 +559,10 @@ def admin_export_excel():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT s.*, sp.company_name
+        SELECT s.*, sp.company_name, p.name as project_name, p.code as project_code
         FROM shipments s
         JOIN suppliers sp ON s.supplier_id = sp.id
+        LEFT JOIN projects p ON s.project_id = p.id
         ORDER BY sp.company_name, s.created_at DESC
     ''')
     rows = cursor.fetchall()
@@ -431,8 +573,8 @@ def admin_export_excel():
     ws = wb.active
     ws.title = '全部发货记录'
 
-    headers = ['供应商', '项目名称', '项目编号', '采购订单号', '客户订单号',
-                '物流单号', '物流回单', '发货日期', '备注', '提交时间']
+    headers = ['供应商', '项目编号', '项目名称', '采购订单号', '客户订单号',
+                '物流单号', '发货商品名称', '型号', '发货日期', '备注', '提交时间']
     header_font = Font(bold=True, size=11, color='FFFFFF')
     header_fill = PatternFill(start_color='E60012', end_color='E60012', fill_type='solid')
     thin_border = Border(
@@ -448,9 +590,10 @@ def admin_export_excel():
         cell.border = thin_border
 
     for row_idx, row in enumerate(rows, 2):
-        values = [row['company_name'], row['project_name'], row['project_code'],
-                  row['purchase_order'], row['customer_order'],
-                  row['logistics_no'], row['logistics_receipt'],
+        values = [row['company_name'], row['project_code'] or '', row['project_name'] or '',
+                  row['purchase_order'] or '', row['customer_order'] or '',
+                  row['logistics_no'] or '',
+                  row['product_name'] or '', row['product_model'] or '',
                   str(row['ship_date']) if row['ship_date'] else '',
                   row['remark'] or '',
                   str(row['created_at']) if row['created_at'] else '']
@@ -472,6 +615,17 @@ def admin_export_excel():
     response.headers['Content-Disposition'] = 'attachment; filename=全批发货记录.xlsx'
     return response
 
+# ==================== 辅助函数 ====================
+
+def get_projects_list():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM projects ORDER BY code')
+    projects = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return projects
+
 # ==================== 初始化 ====================
 
 @app.route('/init')
@@ -492,7 +646,6 @@ def init_route():
     conn.close()
     return '数据库初始化完成！<a href="/">返回首页</a>'
 
-# PythonAnywhere WSGI 入口
 application = app
 
 if __name__ == '__main__':

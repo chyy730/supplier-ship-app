@@ -13,13 +13,15 @@
 <table>
     <thead>
         <tr>
-            <th>项目名称</th>
             <th>项目编号</th>
+            <th>项目名称</th>
             <th>采购订单号</th>
             <th>客户订单号</th>
             <th>物流单号</th>
-            <th>物流回单</th>
+            <th>商品名称</th>
+            <th>型号</th>
             <th>发货日期</th>
+            <th>物流回单</th>
             <th>备注</th>
             <th>操作</th>
         </tr>
@@ -27,13 +29,21 @@
     <tbody>
         {% for s in shipments %}
         <tr>
-            <td>{{ s.project_name }}</td>
             <td>{{ s.project_code or '' }}</td>
+            <td>{{ s.project_name or '' }}</td>
             <td>{{ s.purchase_order or '' }}</td>
             <td>{{ s.customer_order or '' }}</td>
             <td>{{ s.logistics_no or '' }}</td>
-            <td>{{ s.logistics_receipt or '' }}</td>
+            <td>{{ s.product_name or '' }}</td>
+            <td>{{ s.product_model or '' }}</td>
             <td>{{ s.ship_date or '' }}</td>
+            <td>
+                {% if s.logistics_receipt_file %}
+                <a href="/uploads/{{ s.logistics_receipt_file }}" target="_blank">查看</a>
+                {% else %}
+                -
+                {% endif %}
+            </td>
             <td>{{ s.remark or '' }}</td>
             <td class="actions-cell">
                 <a href="/supplier/edit/{{ s.id }}" class="btn btn-sm btn-outline">编辑</a>

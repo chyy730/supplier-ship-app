@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}管理员 - 项目管理{% endblock %}
+{% block navbar %}
+    <a href="/admin" class="btn btn-sm btn-outline">发货记录</a>
+    <a href="/admin/project/manage" class="btn btn-sm btn-primary">项目管理</a>
+    <a href="/admin/supplier/manage" class="btn btn-sm btn-outline">供应商管理</a>
+    <a href="/admin/export/excel" class="btn btn-sm btn-outline">导出全部Excel</a>
+    <a href="/admin/logout" class="btn btn-sm btn-outline" style="color:#dc3545;border-color:#dc3545;">退出</a>
+{% endblock %}
+{% block content %}
+<h1>项目管理</h1>
+
+<div class="card">
+    <h2>添加项目</h2>
+    <form method="POST" action="/admin/project/add" style="margin-top:12px;">
+        <div class="form-row" style="grid-template-columns:1fr 2fr auto;align-items:end;">
+            <div class="form-group">
+                <label>项目编号</label>
+                <input type="text" name="code" class="form-control" required placeholder="如 PRJ-001">
+            </div>
+            <div class="form-group">
+                <label>项目名称</label>
+                <input type="text" name="name" class="form-control" required placeholder="如 XX省5G基站建设项目">
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary" style="margin-top:0;">添加</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>已有项目</h2>
+    {% if projects %}
+    <div style="overflow-x:auto;margin-top:12px;">
+    <table>
+        <thead>
+            <tr>
+                <th>项目编号</th>
+                <th>项目名称</th>
+                <th>发货记录数</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in projects %}
+            <tr>
+                <td>{{ p.code }}</td>
+                <td>{{ p.name }}</td>
+                <td>{{ p.shipment_count }}</td>
+                <td>{{ p.created_at or '' }}</td>
+                <td class="actions-cell">
+                    <form method="POST" action="/admin/project/delete/{{ p.id }}" style="display:inline;"
+                          onsubmit="return confirm('删除项目不会删除已有发货记录，但供应商将无法再选择此项目。确认删除？')">
+                        <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state">暂无项目，请添加</div>
+    {% endif %}
+</div>
+{% endblock %}
